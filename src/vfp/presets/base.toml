@@ -1,0 +1,165 @@
+# vectorFlightPath base parameter set.
+#
+# Every parameter the model reads appears here with its unit. This file is the
+# deliverable Cummins et al. (2012) did not provide: their dx, dt and per-modality
+# beta0 are unreported, so the paper is not reimplementable from the paper.
+#
+# `tests/test_config.py` asserts this file round-trips to the dataclass defaults,
+# so the two cannot drift.
+
+[meta]
+name = "base"
+notes = "Neutral defaults. Presets extend this; nothing should run it directly."
+
+[domain]
+lx_m = 10.0
+ly_m = 10.0
+# The 2D layer thickness that converts a host's volumetric emission into a
+# per-area source. Unavoidable in a 2D model; declared rather than hidden, set
+# equal to the flight height, and held at one value for every preset so that no
+# result depends on a quietly retuned depth. It is swept in the sensitivity study.
+#
+# It only scales the mean concentration (C ~ emission / h) and leaves the
+# fluctuation intensity untouched, so it cannot change the intermittency
+# structure -- only where the mean sits relative to C0.
+mixing_depth_m = 1.0
+flight_height_m = 1.0
+
+[numerics]
+# Provisional. Frozen at M7 with a Roache grid convergence index attached.
+dx_m = 0.025
+dt_s = 0.05
+# Central differencing has zero numerical diffusivity and is non-oscillatory
+# while the grid Peclet number stays below 2. With the physical K_t ~ 1.04e-2
+# m2/s and dx = 0.025 m, Pe_dx = 0.48, so upwinding is not needed. Cummins used
+# first-order upwind, whose numerical diffusivity U*dx/2 is 88-1100x molecular
+# and therefore set their plume width by accident.
+advection_scheme = "central"
+linear_solver = "splu"
+max_grid_peclet = 2.0
+
+[wind]
+# Inversion of the log law for U = 0.2 m/s at z = 1 m with z0 = 0.01 m, which is
+# the large-scale wind speed U2 of Cummins Table 1.
+u_star_m_s = 0.017806
+z0_m = 0.01
+obukhov_length_m = 0.0        # 0 => neutral; < 0 unstable; > 0 stable
+direction_rad = 1.5707963267948966   # +y
+kappa_vk = 0.41
+c_mu = 0.09
+sc_t = 0.7
+sc_variance = 0.7
+c_dissipation = 2.0
+
+[wind.meander]
+enabled = false
+kind = "cummins_eq2"
+amplitude = 1.0
+wavenumber_rad_m = 1.5707963267948966   # a = pi/2, Cummins Eq. 2
+
+[wind.realization]
+# Cummins shared one wind realization across all 15 replicates, so their reported
+# standard deviations measure only mosquito stochasticity. These spreads make
+# replicate fields genuinely independent.
+direction_sd_rad = 0.20
+u_star_rel_sd = 0.15
+meander_phase = "uniform"
+
+[co2]
+molecular_diffusivity_m2_s = 1.6e-5
+# Physical units, converted internally to a per-cell rate with mass-conserving
+# bilinear deposition. 300 mL/min is a human at rest; a roosting chicken, the
+# host in the Foppa experiment, is ~20 mL/min.
+#
+# Concentration scales as emission / mixing_depth_m, so these two are chosen
+# together and the pairing is physical rather than free: a standing human's CO2
+# plume mixes through roughly a metre, a roosting bird's stays shallow. Get it
+# wrong and the plume never crosses C0 = 40 ppm, so plume-tracking never
+# activates and the whole behavioural model is inert. There is a test for that.
+emission_per_host_ml_min = 300.0
+background_ppm = 0.0
+
+[co2.pdf]
+model = "lognormal_intermittent"
+# The single free parameter of the PDF model. Intermittency appears only where
+# the total intensity exceeds it, since gamma = min(1, (1+i_c^2)/(1+i^2)). The
+# closure gives i ~ 0.85 on the plume centreline, so i_c = 1.0 would put gamma at
+# exactly 1 there: no blanks along the plume at all. Swept, and reported.
+conditional_intensity = 0.5
+copula_ar1 = true
+tau_c_s = "auto"              # auto => L_t / (|U| + u') from the ABL module
+
+[hosts]
+layout = "grid_patch"
+n_hosts = 9
+spacing_m = 0.3
+patch_center_m = [5.0, 5.0]
+patch2_center_m = [0.0, 0.0]
+n_hosts2 = 0
+capacity = 0                  # 0 => unlimited, as in Cummins
+
+[agents]
+n = 20000
+release = "uniform_domain"
+release_density_m2 = 0.0      # > 0 overrides n; the invariance-safe way to specify a run
+strategy = "crosswind"
+s_min_m_s = 0.4
+s_max_m_s = 1.5
+omega_max_rad_s = 10.0        # absent in Cummins, where reversal is instantaneous
+groundspeed_cap_m_s = 0.0     # 0 => no cap; s is airspeed, so the additive form is correct
+
+[agents.wind_perturbation]
+enabled = true
+model = "ou"                  # variance 2k/3, timescale tau_L
+
+[behavior.co2]
+c0_ppm = 40.0
+c_sat_ppm = 4000.0
+g0_ppm_m = 40.0
+g_sat_ppm_m = 7900.0
+beta0 = 0.00505               # = g0/g_sat; tabulated, unlike in the source
+alpha_min_rad = 0.5235987755982988   # pi/6, the gradient-method value
+alpha_max_rad = 3.141592653589793    # pi
+gradient_probe_m = 0.025      # = dx, couples sensing to the resolved field
+hard_threshold = true         # kept only for comparability; kappa -> 0 already handles it
+
+[behavior.wind]
+v0_m_s = 0.0
+v_sat_m_s = 0.5
+beta0 = 0.0                   # = v0/v_sat; tabulated
+alpha_min_rad = 0.5235987755982988   # pi/6
+alpha_max_rad = 1.5707963267948966   # pi/2
+t_cwd_s = [0.5, 0.9]
+
+[behavior.weights]
+# Cummins' c = 1/2 blend corresponds to unit weights. Their c = 1 (wind only) is
+# not a branch here: it emerges as the limit kappa_co2 -> 0 inside a blank.
+w_wind = 1.0
+w_co2 = 1.0
+
+[contact]
+radius_m = 0.5
+swept_segment = true
+
+[boundary]
+# Cummins absorbed at the walls; the saturation of directed strategies in their
+# Fig. 4 follows from that, not from biology. `absorb` stays available so the
+# artefact can be quantified.
+mode = "reflect"
+scalar_inflow = "dirichlet"   # Cummins used Neumann on every face, including inflow
+scalar_outflow = "advective"
+scalar_lateral = "neumann"
+
+[run]
+t_final_s = 300.0
+n_field_realizations = 8
+n_replicates_per_field = 1
+master_seed = 20260812
+
+[output]
+dir = "artifacts"
+save_trajectories = false
+trajectory_subsample = 50
+
+[repellent]
+enabled = false

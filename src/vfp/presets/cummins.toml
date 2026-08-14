@@ -1,0 +1,29 @@
+# Cummins et al. (2012) geometry, under this project's corrections.
+#
+# Reproduces their setting: 10 m square domain, a 3x3 host patch at 0.3 m spacing
+# in the centre, large-scale wind U2 = 0.2 m/s. What differs is everything the
+# audit flagged: tropotaxis instead of klinotaxis, von Mises instead of uniform
+# angular sampling, a turn-rate limit, reflecting walls, an intermittent
+# concentration field, and a declared dx and dt.
+
+[meta]
+name = "cummins"
+extends = "base.toml"
+notes = "Table 3 / Fig. 4 comparison case. Set wind.meander.enabled for the meandering plume."
+
+[run]
+t_final_s = 500.0
+
+[hosts]
+layout = "grid_patch"
+n_hosts = 9
+spacing_m = 0.3
+patch_center_m = [5.0, 5.0]
+
+[agents]
+# Cummins released 200. Stepping cost is dominated by per-call interpreter
+# overhead below N ~ 1e5, so 20000 costs the same wall-clock and makes the
+# within-field (binomial) error negligible against the between-field error.
+n = 20000
+release = "uniform_domain"
+strategy = "crosswind"

@@ -1,0 +1,51 @@
+# Device-scale geometry, after Bernier et al. (2019).
+#
+# Their outdoor trial placed six CRDs at the centre and scored mosquito mortality
+# in pouches on concentric rings at 0.5, 1.25 and 2.5 m. This preset matches that
+# scale so the isoprotection sweep is comparable, but measures a different thing:
+# reduction in host-contact rate for a freely flying agent, not mortality of a
+# mosquito sealed in a stationary pouch. That substitution is the point of the
+# project -- Bernier's own stated limitation is that behavioural endpoints in open
+# space are "more complex to correlate with a spatial distribution".
+#
+# Wind follows their tent measurement of ~5 km/h. u* inverts the log law:
+# u* = kappa*U/ln(z/z0) = 0.41*1.4/ln(100) = 0.1246 m/s, giving
+# K_t = kappa*u*z/Sc_t = 0.0730 m2/s and a grid Peclet number of 0.38.
+#
+# The repellent field is not implemented in this phase; the device position is
+# recorded here so the geometry does not move when it is.
+
+[meta]
+name = "device_bernier"
+extends = "base.toml"
+notes = "Host is swept by drivers/sweep.py; patch_center_m is only the sweep origin."
+
+[domain]
+lx_m = 6.0
+ly_m = 6.0
+mixing_depth_m = 1.0
+flight_height_m = 1.0
+
+[numerics]
+dx_m = 0.02
+
+[wind]
+u_star_m_s = 0.1246           # log-law inversion of 1.4 m/s at z = 1 m
+direction_rad = 1.5707963267948966
+
+[co2]
+emission_per_host_ml_min = 300.0   # human host, ~0.3 L/min
+
+[hosts]
+layout = "single"
+n_hosts = 1
+patch_center_m = [3.0, 3.0]
+
+[agents]
+n = 20000
+release = "uniform_domain"
+strategy = "crosswind"
+
+[run]
+t_final_s = 300.0
+n_field_realizations = 8

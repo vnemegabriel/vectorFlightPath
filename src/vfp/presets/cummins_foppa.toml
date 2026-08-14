@@ -1,0 +1,46 @@
+# Attack-abatement validation against Foppa et al.
+#
+# Target: the per-capita contact rate on a solitary host divided by that on a host
+# in a group of nine equals 4.27. Cummins obtained 4.3 and 4.4.
+#
+# The two patches sit at the same y, so neither lies in the other's wake and the
+# comparison is not confounded by shadowing. `drivers/foppa.py` also runs a 5-5
+# split, which must return a ratio of 1.0 and is the cheap correctness check on
+# the whole pipeline.
+#
+# Note the windless variant. Foppa's experiment was indoors, and Cummins remark
+# that their agreement "is surprising since our simulations included wind". A
+# validation that only reproduces the number under a condition the experiment did
+# not have is not a validation, so both are run and the discrepancy is reported.
+
+[meta]
+name = "cummins_foppa"
+extends = "base.toml"
+notes = "Set wind.u_star_m_s = 0.0 for the indoor (windless) level of the factorial."
+
+[co2]
+# Foppa's hosts were roosting chickens, a much weaker CO2 source than a human.
+# The mean plume then peaks near 22 ppm, below the C0 = 40 ppm threshold -- and
+# that is fine, because the agent does not read the mean. At a fluctuation
+# intensity of ~3 the intermittency factor is ~0.125, so the mean concentration
+# inside a filament is ~8x the ensemble mean and threshold crossings happen in
+# bursts. A model that smoothed the field, as Cummins' does, would show this
+# host as undetectable.
+emission_per_host_ml_min = 20.0
+
+[run]
+t_final_s = 500.0
+
+[hosts]
+layout = "two_patches"
+n_hosts = 9
+n_hosts2 = 1
+spacing_m = 0.3
+patch_center_m = [3.0, 5.0]
+patch2_center_m = [7.0, 5.0]
+capacity = 0
+
+[agents]
+n = 20000
+release = "uniform_domain"
+strategy = "upwind"
