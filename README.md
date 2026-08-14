@@ -53,6 +53,99 @@ the milestones that need it.
 
 ---
 
+## Architecture
+
+### Module map
+
+| Module | Holds |
+|---|---|
+| `config.py` | Frozen dataclass tree. TOML with `extends`, deep-merged. Unknown keys rejected, physical constraints checked, blake2b hash stamped into artefacts |
+| `rng.py` | Named streams addressed by `(field_idx, replicate_idx, stream)` through a `SeedSequence` spawn key |
+| `grid.py` | `Grid2D`: cell-centred uniform mesh, bilinear `InterpWeights`, mass-conserving `deposit` |
+| `hosts.py` | `HostSet`: patch layouts, patch tagging for attack abatement, capacity |
+| `cli.py` | `presets`, `show-config` |
+| `fields/abl.py` | Log law + Monin-Obukhov similarity → `Flow`. Also Cummins' Eq. 2 meander |
+| `fields/operator.py` | Five-point assembler, `BCSpec`, `LinearFieldSolver`, `boundary_efflux` |
+| `fields/mean.py` | `SourceSpec` in physical units, per-cell conversion, analytic point source |
+| `fields/variance.py` | Scalar-variance production and transport → `VarianceResult` |
+| `presets/*.toml` | `base` plus `cummins`, `cummins_foppa`, `device_bernier` |
+
+Not written yet: `fields/sampler.py`, `fields/fieldset.py`, `agents/`,
+`metrics.py`, `drivers/`, `repellent/`. See [Milestones](#milestones).
+
+### The pipeline
+
+```python
+from vfp import config, hosts, rng
+from vfp.grid import Grid2D
+from vfp.fields import abl, mean, variance
+
+cfg = config.load("cummins")
+grid = Grid2D.from_config(cfg)
+streams = rng.streams(cfg.run.master_seed, field_idx=0)
+
+flow = abl.realize(grid, cfg, streams["field"])   # one wind realization
+host_set = hosts.build(cfg)
+source = mean.SourceSpec.hosts(host_set.positions_m, cfg.co2.emission_per_host_ml_min)
+
+mean_solver = mean.make_solver(grid, flow, cfg)          # factorise once
+var_solver = variance.make_solver(grid, flow, cfg)       # factorise once
+
+C = mean.solve(grid, flow, cfg, source, mean_solver)     # back-substitution
+result = variance.solve(grid, flow, cfg, C, var_solver)  # back-substitution
+```
+
+`(C, result.field)` is the pair an agent samples from. Passing `rng=None` to
+`abl.realize` gives the nominal unperturbed flow instead of a realization.
+
+### Why the field is a steady sparse solve, not a time march
+
+The single most consequential decision in the field layer, and the reason the
+isoprotection sweep is affordable at all.
+
+1. **It removes Δt from the field entirely.** Cummins never report their
+   timestep, so their field is not reproducible. Here only the *agent* timestep
+   remains, and that is convergence-tested on its own.
+2. **The operator depends on the flow, not on the source.** Moving the host in a
+   sweep costs one back-substitution. Measured on the `cummins` preset at
+   400×400 cells: **factorisation 0.82 s, each additional host position 0.06 s**
+   for the mean and variance solves together — 13× cheaper per position. A sweep
+   pays one factorisation per wind realization, not one per host position.
+3. **The boundary conditions can be imposed properly**, which a time march with
+   the same stencil would also allow but which the source got wrong anyway.
+
+### Contracts worth knowing before calling anything
+
+- **`SourceSpec` carries m³/s.** Use `SourceSpec.hosts(positions, ml_per_min)` for
+  the usual case; the per-cell ppm/s conversion happens inside `source_field` and
+  depends on `domain.mixing_depth_m`.
+- **`LinearFieldSolver` factorises in `__init__`.** Construct it once per wind
+  realization and pass it into `solve()`; omitting it silently refactorises.
+- **`Grid2D.interp_weights` is separate from `apply` on purpose.** The agent step
+  reads the mean and the variance at five probe points each, so the weights are
+  computed once and applied to many fields.
+- **`grid.deposit` is the adjoint of `grid.apply`**, which is what makes emitted
+  mass exactly resolution-independent.
+- **`VarianceResult` diagnostics are plume-masked.** Far from the source both the
+  mean and the variance underflow, and the ratio of two such numbers says nothing
+  about the closure.
+- **`Flow.k_t` is a field; `Flow.tke` and `Flow.dissipation` are scalars** at
+  flight height. The 2D model has one height.
+- **Streams are per-run, not per-agent** — see [Known open items](#known-open-items).
+
+### Which test guards which claim
+
+| Test file | Protects |
+|---|---|
+| `test_config.py` | `base.toml` equals the dataclass defaults; unknown keys and bad physics rejected |
+| `test_grid.py` | Bilinear exactness; deposit conservation and adjointness |
+| `test_abl.py` | Log-law inversion; the K_t closure identity; Péclet under limit for every preset; meander divergence-free |
+| `test_mean_field.py` | Manufactured-solution order; mass balance; Dirichlet vs Neumann inflow; Péclet guard |
+| `test_variance_field.py` | Production/dissipation balance; intensity invariance; usable intermittency per preset |
+| `test_hosts.py` | Layouts, patch tagging, wall-margin refusal |
+
+---
+
 ## What is corrected, and why
 
 Numbering follows the source audit. Each item is a decision the source either got
